@@ -7,14 +7,16 @@ buildscript {
     }
     dependencies {
         classpath "org.grails:grails-gradle-plugin:$grailsVersion"
+        classpath "io.github.gradle-nexus:publish-plugin:1.3.0"
         classpath 'org.asciidoctor:asciidoctor-gradle-plugin:1.6.1'
         classpath "gradle.plugin.com.github.erdi.webdriver-binaries:webdriver-binaries-gradle-plugin:$webdriverBinariesVersion"
     }
 }
 
-ext {
-    // commonBuild = 'https://raw.githubusercontent.com/rainboyan/grails-common-build/22.0.x'
-}
+ext."signing.keyId" = project.hasProperty("signing.keyId") ? project.getProperty('signing.keyId') : System.getenv('SIGNING_KEY_ID')
+ext."signing.password" = project.hasProperty("signing.password") ? project.getProperty('signing.password') : System.getenv('SIGNING_PASSPHRASE')
+ext."signing.secretKeyRingFile" = project.hasProperty("signing.secretKeyRingFile") ? project.getProperty('signing.secretKeyRingFile') : ("${System.properties['user.home']}${File.separator}.gnupg${File.separator}secring.gpg")
+ext.isReleaseVersion = !projectVersion.endsWith("SNAPSHOT")
 
 version project.projectVersion
 group "org.grails.plugins"
@@ -23,10 +25,11 @@ apply plugin:"eclipse"
 apply plugin:"idea"
 apply plugin:"java-library"
 apply plugin:"org.grails.grails-plugin"
-apply plugin:"org.grails.internal.grails-plugin-publish"
 apply plugin:"org.grails.grails-gsp"
 apply plugin: "com.github.erdi.webdriver-binaries"
-// apply from: resources.text.fromInsecureUri("${commonBuild}/common-docs.gradle")
+apply plugin: "io.github.gradle-nexus.publish-plugin"
+apply plugin: "maven-publish"
+apply plugin: "signing"
 
 repositories {
     mavenLocal()
@@ -64,6 +67,7 @@ dependencies {
 	api "org.grails:grails-datastore-core:$gormVersion"
 	api "org.grails:grails-datastore-gorm:$gormVersion"
     api 'com.googlecode.concurrentlinkedhashmap:concurrentlinkedhashmap-lru:1.4.2'
+    api "org.grails:grails-web-gsp:$grailsVersion"
     testImplementation "org.grails.plugins:geb:$gebVersion"
     profile "org.grails.profiles:web-plugin"
     testImplementation "org.grails:grails-test-support"
@@ -78,7 +82,6 @@ dependencies {
     testImplementation "org.seleniumhq.selenium:selenium-htmlunit-driver:2.52.0"
     testImplementation "net.sourceforge.htmlunit:htmlunit:2.18"
 }
-apply from: rootProject.file('gradle/testVerbose.gradle')
 
 sourceCompatibility = 17
 targetCompatibility = 17
@@ -116,21 +119,18 @@ bootRun {
 // enable if you wish to package this plugin as a standalone application
 bootJar.enabled = false
 
-grailsPublish {
-    userOrg = 'grails'
-    githubSlug = 'grails/grails-cache'
-    license {
-        name = 'Apache-2.0'
-    }
-    title = project.title
-    desc = project.projectDesc
-    developers = [jeffbrown: "Jeff Scott Brown", rainboyan: "Michael Yan"]
-}
-
 integrationTest {
     testLogging {
         exceptionFormat = 'full'
     }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(11)
+    }
+    withJavadocJar()
+    withSourcesJar()
 }
 
 jar {
@@ -138,4 +138,71 @@ jar {
     archiveClassifier.set('')
     exclude 'cache/Application.class', 'com/demo/**', 'gsp_*', '/gsp/views.properties'
     includeEmptyDirs = false
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            groupId = project.group
+            artifactId = 'cache'
+            version = project.version
+
+            versionMapping {
+                usage('java-api') {
+                    fromResolutionOf('runtimeClasspath')
+                }
+                usage('java-runtime') {
+                    fromResolutionResult()
+                }
+            }
+
+            from components.java
+
+            pom {
+                name = "Grails Cache Plugin"
+                description = "The Grails Cache plugin provides powerful and easy to use caching functionality to Grails applications and plugins."
+                url = 'https://github.com/rainboyan/grails-cache'
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'rainboyan'
+                        name = 'Michael Yan'
+                        email = 'rain@rainboyan.com'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/rainboyan/grails-cache.git'
+                    developerConnection = 'scm:git:ssh://github.com:rainboyan/grails-cache.git'
+                    url = 'https://github.com/rainboyan/grails-cache/tree/main'
+                }
+            }
+        }
+    }
+}
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            def ossUser = System.getenv("SONATYPE_USERNAME") ?: project.hasProperty("sonatypeOssUsername") ? project.sonatypeOssUsername : ''
+            def ossPass = System.getenv("SONATYPE_PASSWORD") ?: project.hasProperty("sonatypeOssPassword") ? project.sonatypeOssPassword : ''
+            def ossStagingProfileId = System.getenv("SONATYPE_STAGING_PROFILE_ID") ?: project.hasProperty("sonatypeOssStagingProfileId") ? project.sonatypeOssStagingProfileId : ''
+            nexusUrl = uri("https://s01.oss.sonatype.org/service/local/")
+            snapshotRepositoryUrl = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/")
+            username = ossUser
+            password = ossPass
+            stagingProfileId = ossStagingProfileId
+        }
+    }
+}
+
+afterEvaluate {
+    signing {
+        required { isReleaseVersion && gradle.taskGraph.hasTask("publish") }
+        sign publishing.publications.maven
+    }
 }

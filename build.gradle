@@ -83,9 +83,6 @@ dependencies {
     testImplementation "net.sourceforge.htmlunit:htmlunit:2.18"
 }
 
-sourceCompatibility = 17
-targetCompatibility = 17
-
 webdriverBinaries {
     if (!System.getenv().containsKey('GITHUB_ACTIONS')) {
         chromedriver "$chromeDriverVersion"
@@ -127,7 +124,7 @@ integrationTest {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(11)
+        languageVersion = JavaLanguageVersion.of(17)
     }
     withJavadocJar()
     withSourcesJar()
